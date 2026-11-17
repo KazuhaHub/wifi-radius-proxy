@@ -157,19 +157,16 @@ fi
 # tries them in order and takes the whole set from the first one that delivers a usable set.
 SRC_LIST=()      # host:port
 SRC_HOST=""; SRC_PORT=""   # the one being tried (or last used)
+is_cert_url() {  # http://IPv4:port; on success the host:port is added to SRC_LIST
+  # Take the two parts out first: is_ipv4 and is_port run their own regex matches, which would
+  # overwrite BASH_REMATCH.
+  [[ $1 =~ ^http://([0-9.]+):([0-9]+)$ ]] || return 1
+  local h=${BASH_REMATCH[1]} q=${BASH_REMATCH[2]}
+  is_ipv4 "$h" && is_port "$q" && SRC_LIST+=("$h:$q")
+}
 if [ -n "${CERT_SYNC_URL:-}" ]; then
-  IFS=, read -ra urls <<< "$CERT_SYNC_URL"
-  [ "${#urls[@]}" -gt 0 ] || err "CERT_SYNC_URL is empty"
-  for u in "${urls[@]}"; do
-    # Take the two parts out first: is_ipv4 and is_port run their own regex matches, which would
-    # overwrite BASH_REMATCH.
-    ok=""
-    if [[ $u =~ ^http://([0-9.]+):([0-9]+)$ ]]; then
-      h=${BASH_REMATCH[1]}; q=${BASH_REMATCH[2]}
-      if is_ipv4 "$h" && is_port "$q"; then SRC_LIST+=("$h:$q"); ok=1; fi
-    fi
-    [ -n "$ok" ] || err "CERT_SYNC_URL item '$u' must be http://IPv4:port, plain http, no path (e.g. http://203.0.113.10:8080)"
-  done
+  if [[ $CERT_SYNC_URL == *[[:cntrl:]]* ]]; then err "CERT_SYNC_URL contains a newline or other control character"
+  else check_list CERT_SYNC_URL is_cert_url "http://IPv4:port, plain http, no path (e.g. http://203.0.113.10:8080)"; fi
 fi
 
 # Optional knobs for tests and tuning. They are generic, so they do have defaults.
@@ -468,10 +465,10 @@ pull_one() {
     fi
   done
   if ! sums_ok "$t" || ! valid_set "$t"; then
-    log "the central set was rejected: $why"; rm -rf "$t"; return 2
+    log "the set from $SRC_HOST:$SRC_PORT was rejected: $why"; rm -rf "$t"; return 2
   fi
   if ! fr_check "$t"; then
-    log "the central set was rejected: FreeRADIUS cannot load it; keeping the current set"
+    log "the set from $SRC_HOST:$SRC_PORT was rejected: FreeRADIUS cannot load it; keeping the current set"
     rm -rf "$t"; return 2
   fi
   adopt "$t"; rm -rf "$t"

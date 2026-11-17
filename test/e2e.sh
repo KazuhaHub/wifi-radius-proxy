@@ -267,7 +267,7 @@ publish "$T/set1"
 site "$SYNC_PW"
 wait_log "$P-site" "Ready to process requests" 30 || bad "site did not start for the refused-set case"
 publish "$T/weak"
-if wait_log "$P-site" "the central set was rejected: FreeRADIUS cannot load it" 25; then
+if wait_log "$P-site" "was rejected: FreeRADIUS cannot load it" 25; then
   ok "a set that passes the checks but that FreeRADIUS refuses is rejected"
 else bad "the FreeRADIUS-refused set was not rejected"; docker logs "$P-site" 2>&1 | tail -10; fi
 if [ "$(docker inspect -f '{{.State.Running}}' "$P-site")" = "true" ] \

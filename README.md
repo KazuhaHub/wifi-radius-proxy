@@ -12,7 +12,7 @@ AP / AC --EAP-TTLS--> this container --inner PAP over a private network--> centr
   FreeRADIUS 4 changes the configuration format. The [upstream watch](.github/workflows/upstream-watch.yml)
   opens an issue when a 4.x release appears.
 - No certificates, keys or secrets are in the repository or the image. The certificate set
-  (`server.pem`, `server.key`, `ca.pem`) is pulled from the central certificate service (or, when it is away, the next one listed) at start
+  (`server.pem`, `server.key`, `ca.pem`) is pulled from the central certificate service (or, when it is away, refuses the account or has no usable set, the next one listed) at start
   and every 6 hours, with the site's own account.
 - The CA is pinned. The fingerprint of the CA certificate is built into the image (`CA_SHA256` in the
   [Dockerfile](Dockerfile)); a pulled set is used only if its `ca.pem` has exactly that SHA-256
