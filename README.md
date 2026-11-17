@@ -85,8 +85,11 @@ pulls a set at start, so the certificate service must be reachable at that momen
 ## Image
 
 `ghcr.io/kazuhahub/wifi-radius-proxy`, for linux/amd64 and linux/arm64, signed with cosign (keyless) and
-with build provenance. Tags: `3.2` (what sites use), `latest`, `sha-<commit>`.
-Sites pull it through the registry mirror: `ghcr.docker.kazuhahub.com/kazuhahub/wifi-radius-proxy:3.2`.
+with build provenance. Tags: `latest` (what sites use), `3.2`, `sha-<commit>`.
+Sites pull it through the registry mirror: `ghcr.docker.kazuhahub.com/kazuhahub/wifi-radius-proxy:latest`.
+`latest` is always the newest build of this repository, which only builds on FreeRADIUS 3.2. Moving to
+FreeRADIUS 4 will be a deliberate change here; since every site follows `latest`, test such a build on one
+site (by its `sha-<commit>` tag) before it is merged to `main`.
 
 [`image.yml`](.github/workflows/image.yml) runs [`test/e2e.sh`](test/e2e.sh) (a real EAP-TTLS login
 against a throwaway CA, certificate service and central, plus certificate rotation, fail-over, a refused
