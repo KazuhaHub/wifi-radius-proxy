@@ -41,10 +41,16 @@ trap cleanup EXIT
 ok()  { echo "PASS: $*"; pass=$((pass + 1)); }
 bad() { echo "FAIL: $*"; fail=$((fail + 1)); }
 
+# grep a container's log. Not `docker logs | grep -q`: under pipefail, grep -q exits at the first
+# match, docker logs then dies of SIGPIPE and the whole pipeline counts as failed (flaky checks).
+logs_grep() {  # container grep-args...
+  local c=$1; shift
+  grep "$@" <<< "$(docker logs "$c" 2>&1)"
+}
 wait_log() {  # container pattern seconds
   local i
   for ((i = 0; i < $3; i++)); do
-    docker logs "$1" 2>&1 | grep -q "$2" && return 0
+    logs_grep "$1" -q "$2" && return 0
     sleep 1
   done
   return 1
@@ -190,17 +196,17 @@ site "$SYNC_PW"
 if wait_log "$P-site" "Ready to process requests" 30; then ok "site starts with a pulled certificate set"
 else bad "site did not start"; docker logs "$P-site" 2>&1 | tail -20; exit 1; fi
 # CERT_SYNC_URL lists a dead service first (127.0.0.1:9): the set must come from the second one.
-if docker logs "$P-site" 2>&1 | grep -q "cannot get the certificate set from 127.0.0.1:9 " \
-   && docker logs "$P-site" 2>&1 | grep -q "got a new certificate set from 127.0.0.1:$CERT_PORT"; then
+if logs_grep "$P-site" -q "cannot get the certificate set from 127.0.0.1:9 " \
+   && logs_grep "$P-site" -q "got a new certificate set from 127.0.0.1:$CERT_PORT"; then
   ok "CERT_SYNC_URL fail-over: the first service is down, the set comes from the second"
-else bad "CERT_SYNC_URL fail-over"; docker logs "$P-site" 2>&1 | grep wifi-radius-proxy | head -5; fi
+else bad "CERT_SYNC_URL fail-over"; { logs_grep "$P-site" wifi-radius-proxy | head -5 || true; }; fi
 
 [ "$(eap alice correct-horse)" = "SUCCESS" ] && ok "correct password accepted" || bad "correct password not accepted"
 [ "$(eap alice wrong)" = "FAILURE" ] && ok "wrong password rejected" || bad "wrong password not rejected"
 # authentication log: one line per login, never the password
-sleep 1; alog=$(docker logs "$P-site" 2>&1 | grep -E "Login (OK|incorrect)")
+sleep 1; alog=$(logs_grep "$P-site" -E "Login (OK|incorrect)")
 if echo "$alog" | grep -q "Login OK" && echo "$alog" | grep -q "Login incorrect" \
-   && ! docker logs "$P-site" 2>&1 | grep -qE "correct-horse|\[wrong\]|/wrong"; then
+   && ! logs_grep "$P-site" -qE "correct-horse|\[wrong\]|/wrong"; then
   ok "authentication log shows Login OK and Login incorrect, without passwords"
 else bad "authentication log"; echo "$alog" | head -5; fi
 cfg=$(docker exec "$P-site" sh -c 'stat -c "%U:%G %a" /etc/freeradius/clients.conf /etc/freeradius/proxy.conf' | sort -u)
@@ -212,17 +218,17 @@ if docker exec "$P-site" grep -q 'secret = \$ENV{AP_RADIUS_SECRET}' /etc/freerad
 else bad "a secret is in the generated config, or the \$ENV reference is missing"; fi
 REAL_CA=$(docker run --rm --entrypoint printenv "$IMAGE" CA_SHA256)
 REAL_NC=$(echo "$REAL_CA" | tr -d : | tr 'a-f' 'A-F')
-if docker logs "$P-site" 2>&1 | grep -q "WARNING: CA_SHA256 is overridden" \
-   && docker logs "$P-site" 2>&1 | grep -q "built-in: $REAL_NC" \
-   && docker logs "$P-site" 2>&1 | grep -q "in use:   $(echo "$CA_FP" | tr 'a-f' 'A-F')"; then
+if logs_grep "$P-site" -q "WARNING: CA_SHA256 is overridden" \
+   && logs_grep "$P-site" -q "built-in: $REAL_NC" \
+   && logs_grep "$P-site" -q "in use:   $(echo "$CA_FP" | tr 'a-f' 'A-F')"; then
   ok "an overridden CA_SHA256 logs a warning naming both fingerprints"
 else bad "no warning for the overridden CA_SHA256"; fi
-if ! docker logs "$P-site" 2>&1 | grep -qE "$AP_SECRET|$CENTRAL_SECRET|$SYNC_PW"; then ok "no secret in the log"
+if ! logs_grep "$P-site" -qE "$AP_SECRET|$CENTRAL_SECRET|$SYNC_PW"; then ok "no secret in the log"
 else bad "a secret appears in the log"; fi
 
 # 2. rotation
 publish "$T/set2"
-if [ "$(timeout 30 docker wait "$P-site")" = "0" ] && docker logs "$P-site" 2>&1 | grep -q "restarting to load it"; then
+if [ "$(timeout 30 docker wait "$P-site")" = "0" ] && logs_grep "$P-site" -q "restarting to load it"; then
   ok "new certificate set makes the container exit cleanly"
 else bad "container did not exit after a new certificate set"; fi
 docker rm -f "$P-site" >/dev/null
@@ -237,10 +243,10 @@ docker rm -f "$P-site" >/dev/null
 # 3. wrong account on a fresh site
 docker volume rm "$P-cache" >/dev/null
 site "not-the-password"
-if wait_log "$P-site" "no valid certificate set yet" 15 && ! docker logs "$P-site" 2>&1 | grep -q "Ready to process requests"; then
+if wait_log "$P-site" "no valid certificate set yet" 15 && ! logs_grep "$P-site" -q "Ready to process requests"; then
   ok "wrong account: site waits and does not run"
 else bad "wrong account: unexpected behaviour"; fi
-docker logs "$P-site" 2>&1 | grep -q "401" && ok "the refusal (401) is logged" || bad "401 not logged"
+logs_grep "$P-site" -q "401" && ok "the refusal (401) is logged" || bad "401 not logged"
 stop_quick "$P-site" && ok "docker stop during the first-start wait is quick and exits 0" || bad "docker stop during the wait was slow or not clean"
 docker rm -f "$P-site" >/dev/null
 
@@ -260,10 +266,10 @@ docker rm -f "$P-site" >/dev/null
 docker volume rm "$P-cache" >/dev/null
 site "$SYNC_PW" "CA_SHA256=<default>"
 if wait_log "$P-site" "does not match the pinned CA_SHA256" 20 && wait_log "$P-site" "no valid certificate set yet" 5 \
-   && ! docker logs "$P-site" 2>&1 | grep -q "Ready to process requests"; then
+   && ! logs_grep "$P-site" -q "Ready to process requests"; then
   ok "set with a non-matching CA is rejected; the fresh site keeps waiting"
 else bad "non-matching CA: unexpected behaviour"; docker logs "$P-site" 2>&1 | tail -5; fi
-docker logs "$P-site" 2>&1 | grep -q "WARNING: CA_SHA256" && bad "a warning was logged although CA_SHA256 is the image's own" \
+logs_grep "$P-site" -q "WARNING: CA_SHA256" && bad "a warning was logged although CA_SHA256 is the image's own" \
   || ok "no CA_SHA256 warning when the image's own pin is used"
 docker rm -f "$P-site" >/dev/null
 
@@ -277,11 +283,11 @@ if wait_log "$P-site" "was rejected: FreeRADIUS cannot load it" 25; then
   ok "a set that passes the checks but that FreeRADIUS refuses is rejected"
 else bad "the FreeRADIUS-refused set was not rejected"; docker logs "$P-site" 2>&1 | tail -10; fi
 if [ "$(docker inspect -f '{{.State.Running}}' "$P-site")" = "true" ] \
-   && ! docker logs "$P-site" 2>&1 | grep -q "restarting to load it" && serves "$T/set1"; then
+   && ! logs_grep "$P-site" -q "restarting to load it" && serves "$T/set1"; then
   ok "the previous set stays live"
 else bad "the live set changed or the site stopped"; fi
 stop_quick "$P-site" && ok "docker stop on the running site is quick and exits 0" || bad "docker stop on the running site was slow or not clean"
-if docker logs "$P-site" 2>&1 | grep -q "Exiting normally"; then ok "FreeRADIUS shut down cleanly on TERM"; else bad "FreeRADIUS did not log a clean exit"; docker logs "$P-site" 2>&1 | tail -12; fi
+if logs_grep "$P-site" -q "Exiting normally"; then ok "FreeRADIUS shut down cleanly on TERM"; else bad "FreeRADIUS did not log a clean exit"; docker logs "$P-site" 2>&1 | tail -12; fi
 docker rm -f "$P-site" >/dev/null
 
 # seed_cache CURRENT_DIR PREVIOUS_DIR: fill the (empty) cache volume with a current and a previous set
@@ -299,7 +305,7 @@ seed_cache() {
 docker volume rm "$P-cache" >/dev/null
 seed_cache "$T/weak" "$T/set2"
 site "not-the-password"
-if wait_log "$P-site" "Ready to process requests" 30 && docker logs "$P-site" 2>&1 | grep -q "running on the PREVIOUS set" && serves "$T/set2"; then
+if wait_log "$P-site" "Ready to process requests" 30 && logs_grep "$P-site" -q "running on the PREVIOUS set" && serves "$T/set2"; then
   ok "boot falls back to previous/ when the current cached set is unusable"
 else bad "boot fall-back did not work"; docker logs "$P-site" 2>&1 | tail -10; fi
 docker rm -f "$P-site" >/dev/null
@@ -309,7 +315,7 @@ docker volume rm "$P-cache" >/dev/null
 seed_cache "$T/weak" "$T/set1"
 publish "$T/set2"
 site "$SYNC_PW"
-if wait_log "$P-site" "Ready to process requests" 30 && docker logs "$P-site" 2>&1 | grep -q "keeping the existing previous/" \
+if wait_log "$P-site" "Ready to process requests" 30 && logs_grep "$P-site" -q "keeping the existing previous/" \
    && serves "$T/set2" \
    && cmp -s <(docker exec "$P-site" cat /var/lib/cert-sync/previous/server.pem) "$T/set1/server.pem"; then
   ok "a broken current set did not overwrite the good previous/"
@@ -343,7 +349,7 @@ docker run --rm -v "$T/rogue:/r:ro" --entrypoint openssl "$P-rogue:test" verify 
   && ok "(precondition) the rogue CA is trusted by the test image's system store" || bad "(precondition) the rogue CA is not in the system store"
 publish "$T/rogue"
 SITE_IMAGE="$P-rogue:test" site "$SYNC_PW"
-if wait_log "$P-site" "does not chain to the pinned ca.pem" 20 && ! docker logs "$P-site" 2>&1 | grep -q "Ready to process requests"; then
+if wait_log "$P-site" "does not chain to the pinned ca.pem" 20 && ! logs_grep "$P-site" -q "Ready to process requests"; then
   ok "a leaf from a CA in the system trust store (not the pinned CA) is rejected"
 else bad "a leaf from a system-trusted rogue CA was not rejected"; docker logs "$P-site" 2>&1 | tail -5; fi
 docker rm -f "$P-site" >/dev/null
@@ -353,7 +359,7 @@ docker volume rm "$P-cache" >/dev/null
 publish "$T/set1"
 printf '%064d  /dev/zero\n' 0 >> "$T/dist/SHA256SUMS"
 site "$SYNC_PW"
-if wait_log "$P-site" "SHA256SUMS must be exactly three lines" 10 && ! docker logs "$P-site" 2>&1 | grep -q "Ready to process requests"; then
+if wait_log "$P-site" "SHA256SUMS must be exactly three lines" 10 && ! logs_grep "$P-site" -q "Ready to process requests"; then
   ok "a SHA256SUMS with an extra /dev/zero line is rejected quickly"
 else bad "extra line in SHA256SUMS: not rejected quickly"; docker logs "$P-site" 2>&1 | tail -5; fi
 docker rm -f "$P-site" >/dev/null
