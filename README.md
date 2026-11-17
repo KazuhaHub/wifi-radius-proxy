@@ -30,6 +30,8 @@ AP / AC --EAP-TTLS--> this container --inner PAP over a private network--> centr
   `previous/`). If FreeRADIUS cannot start on the current set at boot, the container falls
   back to `previous/` once and logs it loudly. The cache also keeps the site working while the
   certificate service is away.
+- Every login is logged as one `Login OK` / `Login incorrect` line (user, AP and calling station),
+  never with the password. The reason for a rejection is in the central servers' logs.
 - `docker stop` is handled at any time (also while waiting for the first set); FreeRADIUS is shut down
   cleanly.
 

@@ -38,6 +38,12 @@ RUN set -eux; \
     cp /tmp/site-raddb/sites-enabled/* sites-enabled/; \
     cp /tmp/site-raddb/mods-enabled/eap mods-enabled/eap; \
     mkdir -p certs-site; \
+    # Authentication log: one "Login OK" / "Login incorrect" line per login (user, client, calling
+    # station), never the password (auth_badpass / auth_goodpass stay off). The build fails if the
+    # base image's radiusd.conf no longer has the setting in this form.
+    sed -i 's/^\tauth = no$/\tauth = yes/' radiusd.conf; \
+    grep -qP '^\tauth = yes$' radiusd.conf; \
+    grep -qP '^\tauth_badpass = no$' radiusd.conf; grep -qP '^\tauth_goodpass = no$' radiusd.conf; \
     chown -R root:freerad /etc/freeradius; \
     chmod -R go-w /etc/freeradius; \
     rm -rf /tmp/site-raddb; \

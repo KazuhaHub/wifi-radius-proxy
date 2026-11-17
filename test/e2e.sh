@@ -197,6 +197,12 @@ else bad "CERT_SYNC_URL fail-over"; docker logs "$P-site" 2>&1 | grep wifi-radiu
 
 [ "$(eap alice correct-horse)" = "SUCCESS" ] && ok "correct password accepted" || bad "correct password not accepted"
 [ "$(eap alice wrong)" = "FAILURE" ] && ok "wrong password rejected" || bad "wrong password not rejected"
+# authentication log: one line per login, never the password
+sleep 1; alog=$(docker logs "$P-site" 2>&1 | grep -E "Login (OK|incorrect)")
+if echo "$alog" | grep -q "Login OK" && echo "$alog" | grep -q "Login incorrect" \
+   && ! docker logs "$P-site" 2>&1 | grep -qE "correct-horse|\[wrong\]|/wrong"; then
+  ok "authentication log shows Login OK and Login incorrect, without passwords"
+else bad "authentication log"; echo "$alog" | head -5; fi
 cfg=$(docker exec "$P-site" sh -c 'stat -c "%U:%G %a" /etc/freeradius/clients.conf /etc/freeradius/proxy.conf' | sort -u)
 [ "$cfg" = "root:freerad 640" ] && ok "generated config is root:freerad 640" || bad "generated config owner/mode: $cfg"
 if docker exec "$P-site" grep -q 'secret = \$ENV{AP_RADIUS_SECRET}' /etc/freeradius/clients.conf \
