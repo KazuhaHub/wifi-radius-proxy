@@ -148,7 +148,7 @@ site() {
   local -A e=(
     [SITE_NAME]=e2e [AP_SUBNETS]=127.0.0.1/32 [AP_RADIUS_SECRET]=$AP_SECRET
     [CENTRAL_SERVERS]=127.0.0.1:$CENTRAL_PORT [CENTRAL_SECRET]=$CENTRAL_SECRET
-    [CERT_SYNC_URL]=http://127.0.0.1:$CERT_PORT [CERT_SYNC_USER]=e2e-site [CERT_SYNC_PASSWORD]=$pw
+    [CERT_SYNC_URL]=http://127.0.0.1:9,http://127.0.0.1:$CERT_PORT [CERT_SYNC_USER]=e2e-site [CERT_SYNC_PASSWORD]=$pw
     [CA_SHA256]=$CA_FP [LISTEN_PORT]=$SITE_PORT [CERT_SYNC_INTERVAL]=5 [ALLOW_LOOPBACK_AP]=1
   )
   local kv k args=()
@@ -189,6 +189,11 @@ stop_quick() {  # container: docker stop returns fast with exit code 0 and FreeR
 site "$SYNC_PW"
 if wait_log "$P-site" "Ready to process requests" 30; then ok "site starts with a pulled certificate set"
 else bad "site did not start"; docker logs "$P-site" 2>&1 | tail -20; exit 1; fi
+# CERT_SYNC_URL lists a dead service first (127.0.0.1:9): the set must come from the second one.
+if docker logs "$P-site" 2>&1 | grep -q "cannot get the certificate set from 127.0.0.1:9 " \
+   && docker logs "$P-site" 2>&1 | grep -q "got a new certificate set from 127.0.0.1:$CERT_PORT"; then
+  ok "CERT_SYNC_URL fail-over: the first service is down, the set comes from the second"
+else bad "CERT_SYNC_URL fail-over"; docker logs "$P-site" 2>&1 | grep wifi-radius-proxy | head -5; fi
 
 [ "$(eap alice correct-horse)" = "SUCCESS" ] && ok "correct password accepted" || bad "correct password not accepted"
 [ "$(eap alice wrong)" = "FAILURE" ] && ok "wrong password rejected" || bad "wrong password not rejected"
@@ -353,7 +358,7 @@ secret_marker=Sup3rS3cretValue
 out=$(docker run --rm --name "$P-env" \
   -e SITE_NAME=Bad_Name -e AP_SUBNETS=10.0.0.0/33,300.1.1.1 -e AP_RADIUS_SECRET="${secret_marker}\"x" \
   -e CENTRAL_SERVERS=192.0.2.1:70000 -e CENTRAL_SECRET="a\$b{c}#d${secret_marker}" \
-  -e CERT_SYNC_URL=https://192.0.2.1:80/x -e CERT_SYNC_USER=u -e CERT_SYNC_PASSWORD=p \
+  -e CERT_SYNC_URL=http://192.0.2.1:80,https://192.0.2.1:80/x -e CERT_SYNC_USER=u -e CERT_SYNC_PASSWORD=p \
   "$IMAGE" 2>&1) && rc=0 || rc=$?
 missing_all=""
 for v in SITE_NAME AP_SUBNETS AP_RADIUS_SECRET CENTRAL_SERVERS CENTRAL_SECRET CERT_SYNC_URL; do
