@@ -153,15 +153,23 @@ if [ -n "${CERT_SYNC_USER:-}" ]; then
   [[ $CERT_SYNC_USER != *:* ]] || err "CERT_SYNC_USER must not contain ':' (it separates user and password in Basic auth)"
 fi
 
-SRC_HOST=""; SRC_PORT=""
+# CERT_SYNC_URL: one or more certificate services, comma-separated, in fail-over order. Each check
+# tries them in order and takes the whole set from the first one that delivers a usable set.
+SRC_LIST=()      # host:port
+SRC_HOST=""; SRC_PORT=""   # the one being tried (or last used)
 if [ -n "${CERT_SYNC_URL:-}" ]; then
-  # Take the two parts out first: is_ipv4 and is_port run their own regex matches, which would
-  # overwrite BASH_REMATCH.
-  if [[ $CERT_SYNC_URL =~ ^http://([0-9.]+):([0-9]+)$ ]]; then
-    h=${BASH_REMATCH[1]}; q=${BASH_REMATCH[2]}
-    if is_ipv4 "$h" && is_port "$q"; then SRC_HOST=$h; SRC_PORT=$q; fi
-  fi
-  [ -n "$SRC_HOST" ] || err "CERT_SYNC_URL must be http://IPv4:port, plain http, no path (e.g. http://203.0.113.10:8080)"
+  IFS=, read -ra urls <<< "$CERT_SYNC_URL"
+  [ "${#urls[@]}" -gt 0 ] || err "CERT_SYNC_URL is empty"
+  for u in "${urls[@]}"; do
+    # Take the two parts out first: is_ipv4 and is_port run their own regex matches, which would
+    # overwrite BASH_REMATCH.
+    ok=""
+    if [[ $u =~ ^http://([0-9.]+):([0-9]+)$ ]]; then
+      h=${BASH_REMATCH[1]}; q=${BASH_REMATCH[2]}
+      if is_ipv4 "$h" && is_port "$q"; then SRC_LIST+=("$h:$q"); ok=1; fi
+    fi
+    [ -n "$ok" ] || err "CERT_SYNC_URL item '$u' must be http://IPv4:port, plain http, no path (e.g. http://203.0.113.10:8080)"
+  done
 fi
 
 # Optional knobs for tests and tuning. They are generic, so they do have defaults.
@@ -426,10 +434,24 @@ adopt() {  # dir: make a verified set the current one, keeping the one it replac
   for f in $FILES SHA256SUMS; do mv -f "$CACHE/.$f.new" "$CACHE/$f"; done
 }
 
-# Pull the central set. 0 = a new set was verified and cached, 1 = unchanged, 2 = failed (the
-# cache is left alone). "Unchanged" needs more than equal SHA256SUMS: the cached files must
-# still pass the sums and the checks, otherwise the set is fetched again.
+# Pull the central set from each service in CERT_SYNC_URL in turn, until one gives a result:
+# 0 = a new set was verified and cached, 1 = unchanged, 2 = every service failed (the cache is
+# left alone). The whole set always comes from one service.
 pull() {
+  local s
+  for s in "${SRC_LIST[@]}"; do
+    SRC_HOST=${s%:*}; SRC_PORT=${s##*:}
+    pull_one && return 0
+    [ $? -eq 1 ] && return 1
+  done
+  [ "${#SRC_LIST[@]}" -gt 1 ] && log "no certificate service gave a usable set (tried ${CERT_SYNC_URL//,/, })"
+  return 2
+}
+
+# Pull from $SRC_HOST:$SRC_PORT. 0 = a new set was verified and cached, 1 = unchanged, 2 = failed.
+# "Unchanged" needs more than equal SHA256SUMS: the cached files must still pass the sums and the
+# checks, otherwise the set is fetched again.
+pull_one() {
   local t f
   t=$(mktemp -d -p "$WORK" pull.XXXXXX) || return 2
   if ! fetch SHA256SUMS "$t/SHA256SUMS" "$t/err" || [ ! -s "$t/SHA256SUMS" ]; then
