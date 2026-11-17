@@ -1,0 +1,36 @@
+# Site proxy: terminate EAP-TTLS locally for the APs on the LAN.
+# Which hosts may talk to this port is decided by the generated clients.conf (one client per AP
+# subnet); anything else is dropped. LISTEN_PORT is set by the entrypoint (default 1812).
+server default {
+	listen {
+		type = auth
+		ipaddr = *
+		port = $ENV{LISTEN_PORT}
+	}
+
+	authorize {
+		filter_username
+		eap {
+			ok = return
+		}
+		reject
+	}
+
+	authenticate {
+		eap
+	}
+
+	# The inner (tunneled) PAP request is proxied to the central servers (realm ENTRA, see the generated proxy.conf); its reply must go back
+	# through the eap module so the outer Access-Accept carries EAP-Success and the MPPE keys.
+	post-proxy {
+		eap
+	}
+
+	post-auth {
+		Post-Auth-Type REJECT {
+			attr_filter.access_reject
+			eap
+			remove_reply_message_if_eap
+		}
+	}
+}

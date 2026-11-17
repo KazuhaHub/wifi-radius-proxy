@@ -1,0 +1,68 @@
+name: Upstream watch
+
+# Weekly check for FreeRADIUS 4. The image deliberately stays on 3.2 because 4 changes the
+# configuration format (proxy.conf is gone, home servers become `radius` modules). When a 4.x
+# release or Docker image appears, this opens one issue (GitHub e-mails the repository owner),
+# so the migration is planned rather than forgotten.
+# Note: GitHub disables scheduled workflows after 60 days without repository activity; the run
+# history of this workflow shows whether it has stopped (see README).
+on:
+  schedule:
+    - cron: "41 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  freeradius-4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Look for FreeRADIUS 4
+        id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # A failure of curl or jq fails the job (so a broken check is visible, not silent).
+          # Only grep finding nothing (exit status 1) is fine: that is the normal "no FreeRADIUS 4" answer.
+          none_ok() { "$@" || [ $? -eq 1 ]; }
+          tags_json=$(curl -fsS "https://hub.docker.com/v2/repositories/freeradius/freeradius-server/tags?page_size=100&ordering=last_updated")
+          tags_all=$(jq -r '.results[].name' <<< "$tags_json")
+          tags=$(none_ok grep -E '^(latest-)?4([.-]|$)' <<< "$tags_all")
+          rel_json=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/FreeRADIUS/freeradius-server/releases?per_page=30")
+          rel_all=$(jq -r '.[] | select(.prerelease == false) | .tag_name' <<< "$rel_json")
+          releases=$(none_ok grep -E '^release_4' <<< "$rel_all")
+          echo "docker tags: ${tags:-none}"
+          echo "releases: ${releases:-none}"
+          if [ -n "$tags$releases" ]; then
+            {
+              echo "found=true"
+              echo "detail<<EOF_DETAIL"
+              echo "Docker tags: ${tags:-none}"
+              echo "GitHub releases: ${releases:-none}"
+              echo "EOF_DETAIL"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.look.outputs.found == 'true'
+        with:
+          persist-credentials: false
+
+      - name: Open the migration issue (once)
+        if: steps.look.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DETAIL: ${{ steps.look.outputs.detail }}
+        run: |
+          set -euo pipefail
+          title="FreeRADIUS 4 is out: plan the migration"
+          if gh issue list --repo "$GITHUB_REPOSITORY" --state all --search "\"$title\" in:title" --json number --jq '.[0].number' | grep -q .; then
+            echo "issue already exists"; exit 0
+          fi
+          { echo "$DETAIL"; echo; cat .github/freeradius-4-issue.md; } > body.md
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file body.md

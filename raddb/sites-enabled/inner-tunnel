@@ -1,0 +1,29 @@
+# Inside the TTLS tunnel: forward the inner PAP request to the central node (which checks it with Entra ID).
+# No listen section: it is only reached through the eap module, so it opens no port on the host.
+server inner-tunnel {
+
+	authorize {
+		filter_username
+		if (!&User-Password) {
+			reject
+		}
+		update control {
+			&Proxy-To-Realm := "ENTRA"
+		}
+	}
+
+	authenticate {
+	}
+
+	post-auth {
+		Post-Auth-Type REJECT {
+			attr_filter.access_reject
+		}
+	}
+
+	pre-proxy {
+	}
+
+	post-proxy {
+	}
+}

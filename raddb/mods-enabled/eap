@@ -1,0 +1,38 @@
+# EAP-TTLS only (inner PAP -> Entra). PEAP/MSCHAPv2 cannot work: Entra exposes no password hashes.
+#
+# The certificate set is not in the image. The entrypoint verifies it and installs it in a directory
+# named by SITE_CERT_DIR (normally /etc/freeradius/certs-site). The path is a variable, not a
+# constant, so the entrypoint can run `freeradius -C` against a candidate set in a temporary
+# directory before that set is allowed anywhere near the live one.
+eap {
+	default_eap_type = ttls
+	timer_expire = 60
+	ignore_unknown_eap_types = no
+	max_sessions = ${max_requests}
+
+	tls-config tls-common {
+		private_key_file = $ENV{SITE_CERT_DIR}/server.key
+		certificate_file = $ENV{SITE_CERT_DIR}/server.pem
+		ca_file = $ENV{SITE_CERT_DIR}/ca.pem
+		ca_path = ${cadir}
+		cipher_list = "HIGH"
+		cipher_server_preference = yes
+		tls_min_version = "1.2"
+		tls_max_version = "1.3"
+		ecdh_curve = ""
+		cache {
+			enable = no
+		}
+		ocsp {
+			enable = no
+		}
+	}
+
+	ttls {
+		tls = tls-common
+		default_eap_type = pap
+		copy_request_to_tunnel = no
+		use_tunneled_reply = no
+		virtual_server = "inner-tunnel"
+	}
+}

@@ -1,0 +1,20 @@
+# Wi-Fi RADIUS site proxy. The same file for every site; everything site-specific is in .env.
+# AP --EAP-TTLS--> this container (terminates TLS) --inner PAP over the private network--> central servers.
+# Host networking is needed because the APs are recognised by their source IP, and because the
+# container must reach the central servers and the certificate service over the host's private link.
+# All 8 variables in .env are required (see .env.example); the container refuses to start without them.
+services:
+  freeradius:
+    image: ghcr.docker.kazuhahub.com/kazuhahub/wifi-proxy:3.2
+    restart: unless-stopped
+    network_mode: host
+    env_file: .env
+    volumes:
+      # Verified certificate sets (current and previous), kept across restarts and outages.
+      - cert-cache:/var/lib/cert-sync
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  cert-cache:
