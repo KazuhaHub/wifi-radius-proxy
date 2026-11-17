@@ -1,7 +1,7 @@
-# wifi-proxy
+# wifi-radius-proxy
 
-The Docker version of the Kazuha Hub Wi-Fi proxy: one container image, the same for every site.
-(The OPNsense version is the plugin `os-kazuhahub-wifi-proxy`.)
+The Docker version of the Kazuha Hub Wi-Fi RADIUS proxy: one container image, the same for every site.
+(The OPNsense version is the plugin `os-kazuhahub-wifi-radius-proxy`.)
 
 ```
 AP / AC --EAP-TTLS--> this container --inner PAP over a private network--> central FreeRADIUS --> Entra ID
@@ -38,7 +38,7 @@ AP / AC --EAP-TTLS--> this container --inner PAP over a private network--> centr
 The host must be able to reach the central servers and the certificate service (a private network or VPN).
 
 1. On the certificate service, give the site an account (user and password).
-2. On the site, put two files in one folder:
+2. On the site, put two files in one folder (call it `wifi-radius-proxy`, like the project):
    - [`compose.yaml`](compose.yaml), unchanged
    - `.env`, from [`.env.example`](.env.example), with all 8 variables:
 
@@ -53,7 +53,8 @@ The host must be able to reach the central servers and the certificate service (
      | `CERT_SYNC_USER` | this site's account for the certificate service |
      | `CERT_SYNC_PASSWORD` | its password |
 
-3. Start it (`docker compose up -d`, or create a project from the folder in the NAS UI).
+3. Start it (`docker compose up -d`, or create a project named `wifi-radius-proxy` from the folder in the NAS UI).
+   The compose project is `wifi-radius-proxy` at every site, so the container is `wifi-radius-proxy-freeradius-1`.
    The log shows the certificate set it got and `Ready to process requests`.
 4. Point the AP / AC at the host's LAN address, port 1812, with `AP_RADIUS_SECRET`.
 
@@ -76,11 +77,16 @@ every start naming the in-use and the built-in fingerprint).
 
 Updating: pull the new image and recreate the container. Nothing else changes on the site.
 
+Sites set up before the rename (image `wifi-proxy`, no `name:` in compose): create a new
+`wifi-radius-proxy` project from this `compose.yaml` and the site's `.env`, then stop and delete the old
+project. Only one of them can listen on the port. The new project starts with an empty certificate cache and
+pulls a set at start, so the certificate service must be reachable at that moment.
+
 ## Image
 
-`ghcr.io/kazuhahub/wifi-proxy`, for linux/amd64 and linux/arm64, signed with cosign (keyless) and
+`ghcr.io/kazuhahub/wifi-radius-proxy`, for linux/amd64 and linux/arm64, signed with cosign (keyless) and
 with build provenance. Tags: `3.2` (what sites use), `latest`, `sha-<commit>`.
-Sites pull it through the registry mirror: `ghcr.docker.kazuhahub.com/kazuhahub/wifi-proxy:3.2`.
+Sites pull it through the registry mirror: `ghcr.docker.kazuhahub.com/kazuhahub/wifi-radius-proxy:3.2`.
 
 [`image.yml`](.github/workflows/image.yml) runs [`test/e2e.sh`](test/e2e.sh) (a real EAP-TTLS login
 against a throwaway CA, certificate service and central, plus certificate rotation, fail-over, a refused
@@ -112,7 +118,7 @@ the workflow's run history in the Actions tab shows when it last ran. No keepali
 | Path | What |
 |---|---|
 | `Dockerfile` | the image; bakes in the pinned CA fingerprint (`CA_SHA256`) |
-| `wifi-proxy.sh` | entrypoint: validates `.env`, generates `clients.conf` and `proxy.conf`, gets and verifies the certificate set, runs FreeRADIUS |
+| `wifi-radius-proxy.sh` | entrypoint: validates `.env`, generates `clients.conf` and `proxy.conf`, gets and verifies the certificate set, runs FreeRADIUS |
 | `raddb/` | static FreeRADIUS configuration: EAP-TTLS module and the two virtual servers |
 | `compose.yaml`, `.env.example` | what a site deploys |
 | `test/e2e.sh` | end-to-end test used by CI; runs on any Docker host with `eapol_test` |

@@ -19,13 +19,13 @@ ARG REVISION=unknown
 # value is also written to a file, which a run-time environment variable cannot change.
 ARG CA_SHA256=26:DC:20:91:BE:86:84:E5:BA:30:9C:A0:13:00:B2:9B:DC:61:8B:4F:C4:B5:4B:EF:31:25:94:09:D9:E1:04:46
 ENV CA_SHA256=${CA_SHA256}
-RUN mkdir -p /usr/local/share/wifi-proxy \
- && printf '%s\n' "${CA_SHA256}" > /usr/local/share/wifi-proxy/ca-sha256 \
- && chmod 644 /usr/local/share/wifi-proxy/ca-sha256
+RUN mkdir -p /usr/local/share/wifi-radius-proxy \
+ && printf '%s\n' "${CA_SHA256}" > /usr/local/share/wifi-radius-proxy/ca-sha256 \
+ && chmod 644 /usr/local/share/wifi-radius-proxy/ca-sha256
 
-LABEL org.opencontainers.image.title="wifi-proxy" \
+LABEL org.opencontainers.image.title="wifi-radius-proxy" \
       org.opencontainers.image.description="Kazuha Hub Wi-Fi RADIUS site proxy (EAP-TTLS, inner PAP to the central servers)" \
-      org.opencontainers.image.source="https://github.com/KazuhaHub/wifi-proxy" \
+      org.opencontainers.image.source="https://github.com/KazuhaHub/wifi-radius-proxy" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.revision="${REVISION}"
 
@@ -43,8 +43,8 @@ RUN set -eux; \
     rm -rf /tmp/site-raddb; \
     for c in bash openssl sha256sum base64 timeout; do command -v "$c"; done
 
-COPY --chmod=755 wifi-proxy.sh /usr/local/bin/wifi-proxy
+COPY --chmod=755 wifi-radius-proxy.sh /usr/local/bin/wifi-radius-proxy
 
 # The verified certificate set (current and previous) survives restarts and outages of the central service here.
 VOLUME /var/lib/cert-sync
-ENTRYPOINT ["/usr/local/bin/wifi-proxy"]
+ENTRYPOINT ["/usr/local/bin/wifi-radius-proxy"]

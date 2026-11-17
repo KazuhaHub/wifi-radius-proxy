@@ -3,9 +3,13 @@
 # Host networking is needed because the APs are recognised by their source IP, and because the
 # container must reach the central servers and the certificate service over the host's private link.
 # All 8 variables in .env are required (see .env.example); the container refuses to start without them.
+# The project name is the same at every site, so the container is always wifi-radius-proxy-freeradius-1;
+# the site is told apart by SITE_NAME in .env, not by names. A NAS UI that sets its own project name overrides this; use wifi-radius-proxy there too.
+name: wifi-radius-proxy
+
 services:
   freeradius:
-    image: ghcr.docker.kazuhahub.com/kazuhahub/wifi-proxy:3.2
+    image: ghcr.docker.kazuhahub.com/kazuhahub/wifi-radius-proxy:3.2
     restart: unless-stopped
     network_mode: host
     env_file: .env
