@@ -36,14 +36,16 @@ RUN set -eux; \
     cd /etc/freeradius; \
     rm -f sites-enabled/* mods-enabled/eap; \
     cp /tmp/site-raddb/sites-enabled/* sites-enabled/; \
-    cp /tmp/site-raddb/mods-enabled/eap mods-enabled/eap; \
+    cp /tmp/site-raddb/mods-enabled/eap /tmp/site-raddb/mods-enabled/login_log mods-enabled/; \
     mkdir -p certs-site; \
-    # Authentication log: one "Login OK" / "Login incorrect" line per login (user, client, calling
-    # station), never the password (auth_badpass / auth_goodpass stay off). The build fails if the
-    # base image's radiusd.conf no longer has the setting in this form.
-    sed -i 's/^\tauth = no$/\tauth = yes/' radiusd.conf; \
-    grep -qP '^\tauth = yes$' radiusd.conf; \
-    grep -qP '^\tauth_badpass = no$' radiusd.conf; grep -qP '^\tauth_goodpass = no$' radiusd.conf; \
+    # The daemon's own authentication log stays off: with it every login writes two lines naming the outer
+    # anonymous identity. The logins are logged by the linelog modules of mods-enabled/login_log instead
+    # (the real inner user, one line). auth_badpass / auth_goodpass stay off: a password must never be
+    # logged. The three settings are set here, and the build fails if radiusd.conf no longer has each
+    # of them exactly once in this form.
+    sed -i -e 's/^\tauth = yes$/\tauth = no/' -e 's/^\tauth_badpass = yes$/\tauth_badpass = no/' -e 's/^\tauth_goodpass = yes$/\tauth_goodpass = no/' radiusd.conf; \
+    [ "$(grep -c -P '^\tauth = no$' radiusd.conf)" = 1 ]; \
+    [ "$(grep -c -P '^\tauth_badpass = no$' radiusd.conf)" = 1 ]; [ "$(grep -c -P '^\tauth_goodpass = no$' radiusd.conf)" = 1 ]; \
     chown -R root:freerad /etc/freeradius; \
     chmod -R go-w /etc/freeradius; \
     rm -rf /tmp/site-raddb; \

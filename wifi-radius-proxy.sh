@@ -39,6 +39,8 @@ log() { echo "wifi-radius-proxy: $*"; }
 # which a signal interrupts at once. `child` is the current background job, `fr` is FreeRADIUS.
 child=""
 fr=""
+logcat=""   # tail, copying the login log (a small file, see below) to the container log
+logtrim=""  # the loop that keeps that file small
 # Scratch space for downloads and checks. A pulled set contains server.key, so this directory is
 # removed on TERM and also emptied at every start (a container restart keeps its /tmp, and a
 # killed run could have left files behind).
@@ -53,6 +55,8 @@ on_term() {
     kill -TERM "$fr" 2>/dev/null
     wait "$fr" 2>/dev/null   # a clean FreeRADIUS shutdown, not a kill after the Docker grace period
   fi
+  [ -n "$logcat" ] && kill "$logcat" 2>/dev/null
+  [ -n "$logtrim" ] && kill "$logtrim" 2>/dev/null
   log "stopped"
   exit 0
 }
@@ -289,6 +293,22 @@ EOF
 }
 
 gen_clients && gen_proxy || { log "cannot write the generated configuration in /etc/freeradius"; exit 1; }
+
+# The login log (mods-enabled/login_log): one line per login, written by FreeRADIUS's linelog modules to
+# a small file and copied by `tail -F` to the container's stdout, so the lines are in `docker logs` and rotate
+# with them. Not /dev/stdout: FreeRADIUS runs as freerad after start and cannot open the pipe, which belongs
+# to root (and linelog seeks, which a pipe or a FIFO refuses). The file cannot grow without bound: it is
+# emptied when it passes 1 MiB (tail follows the truncation). A line written in the instant of the
+# emptying could be lost from the container log; at the rate of Wi-Fi logins that is not a practical risk.
+LOGIN_DIR=/run/wifi-radius-proxy
+LOGIN_LOG=$LOGIN_DIR/logins.log
+rm -rf "$LOGIN_DIR"; mkdir -m 750 "$LOGIN_DIR" && chown freerad:freerad "$LOGIN_DIR" \
+  && : > "$LOGIN_LOG" && chown freerad:freerad "$LOGIN_LOG" && chmod 640 "$LOGIN_LOG" \
+  || { log "cannot create $LOGIN_LOG"; exit 1; }
+tail -n 0 -F "$LOGIN_LOG" 2>/dev/null &
+logcat=$!
+( while sleep 30; do [ "$(stat -c %s "$LOGIN_LOG" 2>/dev/null || echo 0)" -gt 1048576 ] && : > "$LOGIN_LOG"; done ) &
+logtrim=$!
 
 # --- certificate set ----------------------------------------------------------------------
 # GET one file over plain HTTP; body to stdout, fails unless the answer is 200. Plain HTTP is

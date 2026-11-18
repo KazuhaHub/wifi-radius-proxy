@@ -1,0 +1,29 @@
+# The login log: one line per login, with the real (inner) user, the AP, the NAS port and the calling
+# station, never a password. Four cases, each called from a place where it is seen exactly once
+# (see sites-enabled/): accepted and rejected-locally in inner-tunnel, rejected-by-central and no-answer
+# in the outer server's post-proxy. The daemon's own `auth = yes` log is off (Dockerfile): it writes two lines per login
+# naming the outer anonymous identity.
+# The destination is a small file that the entrypoint creates (owned by freerad), copies to the container's
+# stdout with `tail -F` and empties when it passes 1 MiB. FreeRADIUS runs as freerad and cannot open /dev/stdout,
+# and linelog cannot write to a pipe or FIFO (it seeks). The lines look like those of the OPNsense plugin.
+# A FreeRADIUS core line "Login incorrect (Home Server failed to respond): [anonymous]" for the no-answer
+# case still appears; it cannot be switched off. The line next to it here names the real user.
+linelog login_ok {
+	filename = /run/wifi-radius-proxy/logins.log
+	format = "%t : Auth: Login OK: [%{User-Name}] (from client %{client:shortname} port %{%{outer.request:NAS-Port}:-0} cli %{%{outer.request:Calling-Station-Id}:-unknown})"
+}
+
+linelog login_incorrect {
+	filename = /run/wifi-radius-proxy/logins.log
+	format = "%t : Auth: Login incorrect: [%{User-Name}] (from client %{client:shortname} port %{%{outer.request:NAS-Port}:-0} cli %{%{outer.request:Calling-Station-Id}:-unknown})"
+}
+
+linelog login_rejected {
+	filename = /run/wifi-radius-proxy/logins.log
+	format = "%t : Auth: Login incorrect: [%{proxy-request:User-Name}] (from client %{client:shortname} port %{%{NAS-Port}:-0} cli %{%{Calling-Station-Id}:-unknown})"
+}
+
+linelog login_no_answer {
+	filename = /run/wifi-radius-proxy/logins.log
+	format = "%t : Auth: Login failed: [%{proxy-request:User-Name}] (from client %{client:shortname} port %{%{NAS-Port}:-0} cli %{%{Calling-Station-Id}:-unknown}): no central server answered"
+}

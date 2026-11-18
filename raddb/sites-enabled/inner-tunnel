@@ -16,7 +16,13 @@ server inner-tunnel {
 	}
 
 	post-auth {
+		# One line for an accepted login (the central server's Access-Accept to the proxied inner request
+		# comes back here), with the real inner user.
+		login_ok
 		Post-Auth-Type REJECT {
+			# An inner request rejected locally (for example without a password). A rejection by a central
+			# server is logged in the outer server's post-proxy instead.
+			login_incorrect
 			attr_filter.access_reject
 		}
 	}
