@@ -1,0 +1,45 @@
+name: lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A new push to a pull request cancels its stale run; each main push gets its own group and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Lint the workflow files and the shell in their run: blocks. actionlint v1.7.12 needs Go 1.25+; the runner's preinstalled Go is used, and Go fetches 1.25 itself if it is older.
+      - name: actionlint
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      # Lint every tracked file that is a sh/bash script: any *.sh, or a sh/bash/dash shebang (finds extension-less scripts too).
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          mapfile -d '' tracked < <(git ls-files -z)
+          files=()
+          for f in "${tracked[@]}"; do
+            if [[ $f == *.sh ]] || head -n 1 "$f" | grep -Eq '^#!.*/(env[[:space:]]+)?(ba|da)?sh([[:space:]]|$)'; then
+              files+=("$f")
+            fi
+          done
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "error: no shell scripts found to lint" >&2
+            exit 1
+          fi
+          shellcheck -S warning "${files[@]}"

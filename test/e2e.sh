@@ -152,6 +152,7 @@ AP_SECRET=$(openssl rand -hex 16)
 # The value <default> removes a variable, so the image's own default applies.
 site() {
   local pw=$1; shift
+  # shellcheck disable=SC2054 # the commas are part of the associative-array values, not element separators
   local -A e=(
     [SITE_NAME]=e2e [AP_SUBNETS]=127.0.0.1/32 [AP_RADIUS_SECRET]=$AP_SECRET
     [CENTRAL_SERVERS]=127.0.0.1:$CENTRAL_PORT [CENTRAL_SECRET]=$CENTRAL_SECRET
