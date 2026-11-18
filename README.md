@@ -30,8 +30,18 @@ AP / AC --EAP-TTLS--> this container --inner PAP over a private network--> centr
   `previous/`). If FreeRADIUS cannot start on the current set at boot, the container falls
   back to `previous/` once and logs it loudly. The cache also keeps the site working while the
   certificate service is away.
-- Every login is logged as one `Login OK` / `Login incorrect` line (user, AP and calling station),
-  never with the password. The reason for a rejection is in the central servers' logs.
+- Every login is logged as exactly one line in the container log (`docker logs`), with the real inner user, the AP
+  (the client's short name), the NAS port and the calling station, never the password:
+  `Login OK: [user] (from client site-1 port 0 cli 02-00-00-00-00-01)`, `Login incorrect: [user] ...` (the central
+  server rejected it, or the inner request was rejected here) and `Login failed: [user] ...: no central server answered`.
+  The daemon's own authentication log (`auth = yes`) is off, because it writes two lines per login naming the outer
+  anonymous identity. The lines come from FreeRADIUS `linelog` modules ([`login_log`](raddb/mods-enabled/login_log)),
+  which write to a small file that the entrypoint copies to stdout (FreeRADIUS runs as `freerad` and cannot open the
+  container's stdout itself); the file is emptied when it passes 1 MiB, so nothing grows inside the container. The line's
+  time is the start of the request, and a login that waited
+  for a dead central is written when it ends. FreeRADIUS itself still writes its own
+  `Login incorrect (Home Server failed to respond): [anonymous]` line for that case. The reason for a rejection is in the
+  central servers' logs.
 - `docker stop` is handled at any time (also while waiting for the first set); FreeRADIUS is shut down
   cleanly.
 
@@ -124,7 +134,7 @@ the workflow's run history in the Actions tab shows when it last ran. No keepali
 |---|---|
 | `Dockerfile` | the image; bakes in the pinned CA fingerprint (`CA_SHA256`) |
 | `wifi-radius-proxy.sh` | entrypoint: validates `.env`, generates `clients.conf` and `proxy.conf`, gets and verifies the certificate set, runs FreeRADIUS |
-| `raddb/` | static FreeRADIUS configuration: EAP-TTLS module and the two virtual servers |
+| `raddb/` | static FreeRADIUS configuration: EAP-TTLS module, the login log (`linelog`) and the two virtual servers |
 | `compose.yaml`, `.env.example` | what a site deploys |
 | `test/e2e.sh` | end-to-end test used by CI; runs on any Docker host with `eapol_test` |
 | `.github/workflows/` | image build, test and publish; weekly FreeRADIUS 4 watch |

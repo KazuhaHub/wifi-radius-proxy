@@ -4,7 +4,8 @@
 #   FreeRADIUS that accepts one test user with PAP, all on 127.0.0.x with host networking.
 # Then, with eapol_test as the AP + client:
 #   1. a correct password over EAP-TTLS/PAP is accepted, a wrong one rejected; the generated
-#      config holds no secret and has the right owner and mode
+#      config holds no secret and has the right owner and mode; the login log has one line per login
+#      (OK, incorrect, and "no central server answered" when all of them are down), never a password
 #   2. a new certificate set on the service makes the container exit; after a restart it serves the new cert
 #   3. a wrong certificate-service password leaves a fresh site waiting, not running; docker stop is quick and clean
 #   4. two central servers, the first one down: once it is detected (one login may time out), logins work through the second
@@ -202,13 +203,22 @@ if logs_grep "$P-site" -q "cannot get the certificate set from 127.0.0.1:9 " \
 else bad "CERT_SYNC_URL fail-over"; { logs_grep "$P-site" wifi-radius-proxy | head -5 || true; }; fi
 
 [ "$(eap alice correct-horse)" = "SUCCESS" ] && ok "correct password accepted" || bad "correct password not accepted"
-[ "$(eap alice wrong)" = "FAILURE" ] && ok "wrong password rejected" || bad "wrong password not rejected"
-# authentication log: one line per login, never the password
-sleep 1; alog=$(logs_grep "$P-site" -E "Login (OK|incorrect)")
-if echo "$alog" | grep -q "Login OK" && echo "$alog" | grep -q "Login incorrect" \
-   && ! logs_grep "$P-site" -qE "correct-horse|\[wrong\]|/wrong"; then
-  ok "authentication log shows Login OK and Login incorrect, without passwords"
-else bad "authentication log"; echo "$alog" | head -5; fi
+[ "$(eap alice wrong-Pw7)" = "FAILURE" ] && ok "wrong password rejected" || bad "wrong password not rejected"
+# login log (mods-enabled/login_log, copied by tail to the container log): exactly one line per login,
+# with the real inner user and the calling station, never the password, no line for the outer anonymous identity
+sleep 1
+n_ok=$(logs_grep "$P-site" -c "Auth: Login OK: \[alice\] (from client e2e-1 port 0 cli [0-9A-Fa-f-]*)" || true)
+n_bad=$(logs_grep "$P-site" -c "Auth: Login incorrect: \[alice\] (from client e2e-1 port 0 cli [0-9A-Fa-f-]*)" || true)
+[ "$n_ok" = 1 ] && ok "login log: an accepted EAP-TTLS login gives exactly one 'Login OK: [alice]' line, with cli" \
+  || bad "login log: $n_ok 'Login OK: [alice]' lines"
+[ "$n_bad" = 1 ] && ok "login log: a wrong password gives exactly one 'Login incorrect: [alice]' line" \
+  || bad "login log: $n_bad 'Login incorrect: [alice]' lines"
+if ! logs_grep "$P-site" -qE "correct-horse|wrong-Pw7"; then ok "login log: no password anywhere in the container log"
+else bad "a password appears in the container log"; fi
+if ! logs_grep "$P-site" -q "Login OK: \[anonymous"; then ok "login log: no 'Login OK: [anonymous' line (the outer identity is not logged as a login)"
+else bad "login log: a line for the outer anonymous identity"; fi
+if [ "$(docker exec "$P-site" sh -c 'grep -c "^\s*auth = no$" /etc/freeradius/radiusd.conf')" = 1 ]; then ok "the daemon's own authentication log (auth = yes) is off"
+else bad "radiusd.conf: auth is not no"; fi
 cfg=$(docker exec "$P-site" sh -c 'stat -c "%U:%G %a" /etc/freeradius/clients.conf /etc/freeradius/proxy.conf' | sort -u)
 [ "$cfg" = "root:freerad 640" ] && ok "generated config is root:freerad 640" || bad "generated config owner/mode: $cfg"
 if docker exec "$P-site" grep -q 'secret = \$ENV{AP_RADIUS_SECRET}' /etc/freeradius/clients.conf \
@@ -260,6 +270,16 @@ wait_log "$P-site" "Ready to process requests" 30 || bad "site (two central serv
 eap alice correct-horse >/dev/null || true
 [ "$(eap alice correct-horse)" = "SUCCESS" ] && ok "first central down: after it is detected, logins work through the second" \
   || bad "first central down: login still failing"
+docker rm -f "$P-site" >/dev/null
+
+# 4b. every central server down: the login fails after the response window, and the login log says so
+docker volume rm "$P-cache" >/dev/null
+site "$SYNC_PW" "CENTRAL_SERVERS=127.0.0.2:$CENTRAL_PORT"
+wait_log "$P-site" "Ready to process requests" 30 || bad "site (dead central) did not start"
+[ "$(eap alice correct-horse)" = "FAILURE" ] && ok "all central servers down: the login fails" || bad "all central servers down: the login did not fail"
+if wait_log "$P-site" "Auth: Login failed: \[alice\] (from client e2e-1 port 0 cli [0-9A-Fa-f-]*): no central server answered" 60; then
+  ok "login log: a dead central gives 'Login failed: [alice] ... no central server answered'"
+else bad "login log: no 'Login failed' line for a dead central"; { logs_grep "$P-site" -i "login" | tail -5 || true; }; fi
 docker rm -f "$P-site" >/dev/null
 
 # 5. a CA that is not the pinned one (the image's own pin cannot match a throwaway CA)

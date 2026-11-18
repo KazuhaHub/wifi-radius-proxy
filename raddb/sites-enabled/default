@@ -23,6 +23,14 @@ server default {
 	# The inner (tunneled) PAP request is proxied to the central servers (realm ENTRA, see the generated proxy.conf); its reply must go back
 	# through the eap module so the outer Access-Accept carries EAP-Success and the MPPE keys.
 	post-proxy {
+		# The login log. The tunnelled request is proxied through the outer one, so a rejection by the central
+		# server and the failure of all central servers are seen here, not in the inner server.
+		if (&proxy-reply:Packet-Type == Access-Reject) {
+			login_rejected
+		}
+		Post-Proxy-Type Fail-Authentication {
+			login_no_answer
+		}
 		eap
 	}
 
