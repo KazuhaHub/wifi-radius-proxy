@@ -23,13 +23,23 @@ jobs:
         with:
           persist-credentials: false
 
-      # Lint the workflow files (and the shell inside their run: blocks); Go is preinstalled on ubuntu-latest.
+      # Lint the workflow files and the shell in their run: blocks. actionlint v1.7.12 needs Go 1.25+; the runner's preinstalled Go is used, and Go fetches 1.25 itself if it is older.
       - name: actionlint
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
-      # Lint every tracked file whose first line is a sh/bash shebang, so extension-less scripts are covered too.
+      # Lint every tracked file that is a sh/bash script: any *.sh, or a sh/bash/dash shebang (finds extension-less scripts too).
       - name: shellcheck
         run: |
-          git ls-files -z | while IFS= read -r -d '' f; do
-            if head -n 1 "$f" | grep -Eq '^#!.*(ba)?sh'; then printf '%s\0' "$f"; fi
-          done | xargs -0 shellcheck -S warning
+          set -euo pipefail
+          mapfile -d '' tracked < <(git ls-files -z)
+          files=()
+          for f in "${tracked[@]}"; do
+            if [[ $f == *.sh ]] || head -n 1 "$f" | grep -Eq '^#!.*/(env[[:space:]]+)?(ba|da)?sh([[:space:]]|$)'; then
+              files+=("$f")
+            fi
+          done
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "error: no shell scripts found to lint" >&2
+            exit 1
+          fi
+          shellcheck -S warning "${files[@]}"
