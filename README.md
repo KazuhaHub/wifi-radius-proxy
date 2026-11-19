@@ -98,7 +98,7 @@ pulls a set at start, so the certificate service must be reachable at that momen
 
 `ghcr.io/kazuhahub/wifi-radius-proxy`, for linux/amd64 and linux/arm64, signed with cosign (keyless) and
 with build provenance. Tags: `latest` (what sites use), `3.2`, `sha-<commit>`.
-Sites pull it through the registry mirror: `ghcr.docker.kazuhahub.com/kazuhahub/wifi-radius-proxy:latest`.
+Sites pull it through the registry mirror: `ghcr.mirror.kazuhahub.com/kazuhahub/wifi-radius-proxy:latest`.
 `latest` is always the newest build of this repository, which only builds on FreeRADIUS 3.2. Moving to
 FreeRADIUS 4 will be a deliberate change here; since every site follows `latest`, test such a build on one
 site (by its `sha-<commit>` tag) before it is merged to `main`.
