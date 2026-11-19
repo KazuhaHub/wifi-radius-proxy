@@ -9,7 +9,7 @@ name: wifi-radius-proxy
 
 services:
   freeradius:
-    image: ghcr.docker.kazuhahub.com/kazuhahub/wifi-radius-proxy:latest
+    image: ghcr.mirror.kazuhahub.com/kazuhahub/wifi-radius-proxy:latest
     restart: unless-stopped
     network_mode: host
     env_file: .env
